@@ -116,6 +116,7 @@ const isCompatibleFormat = (formatName, extension) => {
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
+    const userLogin = req.user.email ? req.user.email.split('@')[0] : `user_${userId}`;
     const folderId = req.query.folder_id;
     if (!folderId) {
       return res.status(400).json({ error: 'folder_id é obrigatório' });
@@ -123,7 +124,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     // Buscar dados da pasta
     const [folderRows] = await db.execute(
-      'SELECT identificacao FROM streamings WHERE codigo = ? AND codigo_cliente = ?',
+      'SELECT identificacao, codigo_servidor, espaco_usado FROM streamings WHERE codigo = ? AND codigo_cliente = ?',
       [folderId, userId]
     );
     if (folderRows.length === 0) {
@@ -132,7 +133,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     const folderName = folderRows[0].identificacao;
     const userLogin = req.user.email.split('@')[0];
-
+    const serverId = folderData.codigo_servidor || 1;
     // Buscar vídeos na tabela videos usando pasta
     const [rows] = await db.execute(
       `SELECT 
@@ -158,6 +159,65 @@ router.get('/', authMiddleware, async (req, res) => {
     console.log(`📁 Buscando vídeos na pasta: ${folderName} (ID: ${folderId})`);
     console.log(`📊 Encontrados ${rows.length} vídeos no banco`);
 
+    // Sincronizar com servidor e atualizar informações
+    const VideoSSHManager = require('../config/VideoSSHManager');
+    const SSHManager = require('../config/SSHManager');
+    
+    let totalSizeUpdated = 0;
+    
+    for (const video of rows) {
+      try {
+        // Construir caminho correto no servidor
+        let serverPath = video.caminho;
+        if (!serverPath.startsWith('/home/streaming/')) {
+          serverPath = `/home/streaming/${userLogin}/${folderName}/${video.nome}`;
+        }
+        
+        // Verificar se arquivo existe e obter informações atualizadas
+        const fileInfo = await SSHManager.getFileInfo(serverId, serverPath);
+        
+        if (fileInfo.exists) {
+          // Atualizar informações se necessário
+          let needsUpdate = false;
+          const updates = [];
+          const values = [];
+          
+          if (!video.tamanho_arquivo && fileInfo.size > 0) {
+            updates.push('tamanho_arquivo = ?');
+            values.push(fileInfo.size);
+            video.tamanho = fileInfo.size;
+            needsUpdate = true;
+          }
+          
+          if (video.caminho !== serverPath) {
+            updates.push('caminho = ?');
+            values.push(serverPath);
+            needsUpdate = true;
+          }
+          
+          if (needsUpdate) {
+            values.push(video.id);
+            await db.execute(
+              `UPDATE videos SET ${updates.join(', ')} WHERE id = ?`,
+              values
+            );
+          }
+          
+          totalSizeUpdated += Math.ceil((video.tamanho || 0) / (1024 * 1024));
+        }
+      } catch (error) {
+        console.warn(`Erro ao verificar vídeo ${video.nome}:`, error.message);
+      }
+    }
+    
+    // Atualizar espaço usado da pasta se houve mudanças
+    if (totalSizeUpdated > 0 && Math.abs(totalSizeUpdated - (folderData.espaco_usado || 0)) > 5) {
+      await db.execute(
+        'UPDATE streamings SET espaco_usado = ? WHERE codigo = ?',
+        [totalSizeUpdated, folderId]
+      );
+      console.log(`📊 Espaço da pasta atualizado: ${totalSizeUpdated}MB`);
+    }
     // Buscar limite de bitrate do usuário
     const userBitrateLimit = req.user.bitrate || 2500;
 

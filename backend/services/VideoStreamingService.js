@@ -251,27 +251,31 @@ class VideoStreamingService {
     // Gerar URLs de streaming otimizadas
     generateStreamingUrls(userLogin, folderName, fileName, serverId = null) {
         const isProduction = process.env.NODE_ENV === 'production';
-        const baseHost = isProduction ? 'samhost.wcore.com.br' : 'localhost';
-        const wowzaHost = '51.222.156.223';
+        const wowzaHost = isProduction ? 'samhost.wcore.com.br' : '51.222.156.223';
+        const wowzaUser = 'admin';
+        const wowzaPassword = 'FK38Ca2SuE6jvJXed97VMn';
         
         // Garantir que arquivo é MP4
         const finalFileName = fileName.endsWith('.mp4') ? fileName : fileName.replace(/\.[^/.]+$/, '.mp4');
         
         return {
-            // URL direta via backend (com autenticação)
-            direct: `/content/${userLogin}/${folderName}/${finalFileName}`,
+            // URL direta do Wowza (seguindo padrão do video.php)
+            direct: `http://${wowzaUser}:${wowzaPassword}@${wowzaHost}:6980/content/${userLogin}/${folderName}/${finalFileName}`,
             
-            // URL HLS do Wowza usando aplicação específica do usuário
+            // URL HLS do Wowza (seguindo padrão do video.php)
             hls: `http://${wowzaHost}:1935/${userLogin}/_definst_/mp4:${folderName}/${finalFileName}/playlist.m3u8`,
             
             // URL VOD para download
             vod: `http://${wowzaHost}:1935/vod/_definst_/mp4:${userLogin}/${folderName}/${finalFileName}/playlist.m3u8`,
             
+            // URL via backend (com autenticação)
+            backend: `/content/${userLogin}/${folderName}/${finalFileName}`,
+            
             // URL para streaming via SSH
             ssh_stream: `/api/video-stream/ssh/${Buffer.from(`${userLogin}/${folderName}/${finalFileName}`).toString('base64')}`,
             
-            // URL para player iframe
-            iframe: `/api/players/iframe?video=${Buffer.from(`${userLogin}/${folderName}/${finalFileName}`).toString('base64')}`,
+            // URL para player iframe (seguindo padrão do video.php)
+            iframe: `/api/players/iframe?login=${userLogin}&vod=${folderName}/${finalFileName}&aspectratio=16:9&player_type=1`,
             
             // Metadados
             metadata: {
@@ -282,7 +286,8 @@ class VideoStreamingService {
                 server_id: serverId,
                 format: 'mp4',
                 streaming_path: `/home/streaming/${userLogin}/${folderName}/${finalFileName}`,
-                wowza_app: userLogin
+                wowza_app: userLogin,
+                wowza_host: wowzaHost
             }
         };
     }

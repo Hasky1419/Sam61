@@ -77,6 +77,7 @@ const GerenciarVideos: React.FC = () => {
   useEffect(() => {
     if (selectedFolder) {
       loadVideos();
+      loadFolderInfo(selectedFolder);
     }
   }, [selectedFolder]);
 
@@ -121,14 +122,24 @@ const GerenciarVideos: React.FC = () => {
     setLoading(true);
     try {
       const token = await getToken();
+      
+      // Primeiro, sincronizar com servidor
+      await fetch(`/api/videos-ssh/sync-database`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ folderId: selectedFolder })
+      });
+      
+      // Depois carregar vídeos atualizados
       const response = await fetch(`/api/videos?folder_id=${selectedFolder}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
       setVideos(Array.isArray(data) ? data : []);
 
-      // Carregar informações detalhadas da pasta
-      await loadFolderInfo(selectedFolder);
     } catch (error) {
       console.error('Erro ao carregar vídeos:', error);
       toast.error('Erro ao carregar vídeos');

@@ -340,7 +340,7 @@ router.get('/:id/info', authMiddleware, async (req, res) => {
   try {
     const folderId = req.params.id;
     const userId = req.user.id;
-    const userLogin = req.user.email.split('@')[0];
+    const userLogin = req.user.email ? req.user.email.split('@')[0] : `user_${userId}`;
 
     // Buscar dados da pasta
     const [folderRows] = await db.execute(
@@ -365,6 +365,15 @@ router.get('/:id/info', authMiddleware, async (req, res) => {
     const serverId = folder.codigo_servidor || 1;
     const folderName = folder.nome;
 
+    // Recalcular espaço usado baseado nos vídeos reais
+    const [videoSizeRows] = await db.execute(
+      `SELECT COALESCE(SUM(CEIL(tamanho_arquivo / (1024 * 1024))), 0) as real_used_mb
+       FROM videos 
+       WHERE pasta = ? AND codigo_cliente = ?`,
+      [folderId, userId]
+    );
+    
+    const realUsedMB = videoSizeRows[0]?.real_used_mb || 0;
     // Verificar se pasta existe no servidor
     let serverInfo = null;
     try {
@@ -390,6 +399,17 @@ router.get('/:id/info', authMiddleware, async (req, res) => {
           size_mb: Math.ceil(folderSize / (1024 * 1024)),
           path: remoteFolderPath
         };
+        
+        // Atualizar espaço usado se há diferença significativa
+        const serverSizeMB = Math.ceil(folderSize / (1024 * 1024));
+        if (Math.abs(serverSizeMB - (folder.espaco_usado || 0)) > 5) {
+          await db.execute(
+            'UPDATE streamings SET espaco_usado = ? WHERE codigo = ?',
+            [Math.max(serverSizeMB, realUsedMB), folderId]
+          );
+          folder.espaco_usado = Math.max(serverSizeMB, realUsedMB);
+          console.log(`📊 Espaço da pasta ${folderName} atualizado: ${folder.espaco_usado}MB`);
+        }
       } else {
         serverInfo = {
           exists: false,
@@ -417,6 +437,7 @@ router.get('/:id/info', authMiddleware, async (req, res) => {
       ...folder,
       video_count_db: videoCountRows[0].count,
       server_info: serverInfo,
+      real_used_mb: realUsedMB,
       percentage_used: folder.espaco > 0 ? Math.round((folder.espaco_usado / folder.espaco) * 100) : 0
     });
   } catch (err) {

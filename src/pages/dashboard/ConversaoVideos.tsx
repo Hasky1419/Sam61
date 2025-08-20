@@ -132,6 +132,23 @@ const ConversaoVideos: React.FC = () => {
     setLoading(true);
     try {
       const token = await getToken();
+      
+      // Primeiro, sincronizar dados se uma pasta específica foi selecionada
+      if (selectedFolder) {
+        try {
+          await fetch(`/api/videos-ssh/sync-database`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({ folderId: selectedFolder })
+          });
+        } catch (syncError) {
+          console.warn('Erro na sincronização:', syncError);
+        }
+      }
+      
       const url = selectedFolder ?
         `/api/conversion/videos?folder_id=${selectedFolder}` :
         '/api/conversion/videos';

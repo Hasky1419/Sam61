@@ -654,8 +654,76 @@ router.post('/sync-database', authMiddleware, async (req, res) => {
     const serverId = folder.codigo_servidor || 1;
     const folderName = folder.identificacao;
 
-    // Listar vídeos do servidor
-    const videos = await VideoSSHManager.listVideosFromServer(serverId, userLogin, folderName);
+    // Garantir que estrutura existe no servidor
+    await SSHManager.createCompleteUserStructure(serverId, userLogin, {
+      bitrate: req.user.bitrate || 2500,
+      espectadores: req.user.espectadores || 100,
+      status_gravando: 'nao'
+    });
+    
+    await SSHManager.createUserFolder(serverId, userLogin, folderName);
+    
+    // Listar vídeos do servidor na nova estrutura
+    const remoteFolderPath = `/home/streaming/${userLogin}/${folderName}`;
+    const listCommand = `find "${remoteFolderPath}" -type f \\( -iname "*.mp4" -o -iname "*.avi" -o -iname "*.mov" -o -iname "*.wmv" -o -iname "*.flv" -o -iname "*.webm" -o -iname "*.mkv" \\) -exec ls -la {} \\; 2>/dev/null || echo "NO_VIDEOS"`;
+    
+    const result = await SSHManager.executeCommand(serverId, listCommand);
+    
+    let videos = [];
+    if (!result.stdout.includes('NO_VIDEOS')) {
+      const lines = result.stdout.split('\n').filter(line => line.trim());
+      
+      for (const line of lines) {
+        if (line.includes('total ') || !line.trim()) continue;
+        
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 9) continue;
+        
+        const size = parseInt(parts[4]) || 0;
+        const fullPath = parts.slice(8).join(' ');
+        const fileName = path.basename(fullPath);
+        const relativePath = fullPath.replace('/home/streaming/', '');
+        
+        // Obter informações do vídeo via ffprobe
+        let duration = 0;
+        let videoBitrate = 0;
+        let videoFormat = path.extname(fileName).substring(1);
+        
+        try {
+          const probeCommand = `ffprobe -v quiet -print_format json -show_format -show_streams "${fullPath}" 2>/dev/null || echo "NO_PROBE"`;
+          const probeResult = await SSHManager.executeCommand(serverId, probeCommand);
+          
+          if (!probeResult.stdout.includes('NO_PROBE')) {
+            const probeData = JSON.parse(probeResult.stdout);
+            
+            if (probeData.format) {
+              duration = Math.floor(parseFloat(probeData.format.duration) || 0);
+              videoBitrate = Math.floor(parseInt(probeData.format.bit_rate) / 1000) || 0;
+            }
+            
+            if (probeData.streams) {
+              const videoStream = probeData.streams.find(s => s.codec_type === 'video');
+              if (videoStream && videoStream.codec_name) {
+                videoFormat = videoStream.codec_name;
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`Não foi possível obter informações de ${fileName}`);
+        }
+        
+        videos.push({
+          nome: fileName,
+          fullPath: fullPath,
+          relativePath: relativePath,
+          size: size,
+          duration: duration,
+          bitrate_video: videoBitrate,
+          formato_original: videoFormat,
+          is_mp4: path.extname(fileName).toLowerCase() === '.mp4'
+        });
+      }
+    }
 
     // Limpar vídeos antigos desta pasta do banco
     await db.execute(
@@ -667,7 +735,7 @@ router.post('/sync-database', authMiddleware, async (req, res) => {
     let totalSize = 0;
     for (const video of videos) {
       try {
-        const relativePath = video.fullPath.replace('/usr/local/WowzaStreamingEngine/content/', '');
+        const relativePath = video.relativePath;
         
         await db.execute(
           `INSERT INTO videos (
