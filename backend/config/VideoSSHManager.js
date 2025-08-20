@@ -243,11 +243,27 @@ class VideoSSHManager {
             
             // Buscar todas as pastas do usuário
             const [folderRows] = await db.execute(
-                'SELECT codigo, identificacao, codigo_cliente FROM streamings WHERE usuario = ? OR email LIKE ?',
+                'SELECT codigo, identificacao, codigo_cliente, codigo_servidor FROM streamings WHERE usuario = ? OR email LIKE ?',
                 [userLogin, `${userLogin}@%`]
             );
             
             for (const folder of folderRows) {
+                const serverId = folder.codigo_servidor || 1;
+                const folderName = folder.identificacao;
+                
+                // Calcular espaço real no servidor
+                let realServerSizeMB = 0;
+                try {
+                    const SSHManager = require('./SSHManager');
+                    const folderPath = `/home/streaming/${userLogin}/${folderName}`;
+                    const sizeCommand = `du -sb "${folderPath}" 2>/dev/null | cut -f1 || echo "0"`;
+                    const sizeResult = await SSHManager.executeCommand(serverId, sizeCommand);
+                    const folderSizeBytes = parseInt(sizeResult.stdout.trim()) || 0;
+                    realServerSizeMB = Math.ceil(folderSizeBytes / (1024 * 1024));
+                } catch (serverError) {
+                    console.warn(`Erro ao calcular tamanho real da pasta ${folderName}:`, serverError.message);
+                }
+                
                 // Calcular espaço usado baseado nos vídeos na tabela videos
                 const [spaceRows] = await db.execute(
                     `SELECT COALESCE(SUM(CEIL(tamanho_arquivo / (1024 * 1024))), 0) as used_mb
@@ -258,13 +274,16 @@ class VideoSSHManager {
                 
                 const usedMB = spaceRows[0]?.used_mb || 0;
                 
+                // Usar o maior valor entre servidor real e banco de dados
+                const finalUsedMB = Math.max(realServerSizeMB, usedMB);
+                
                 // Atualizar espaço usado na pasta
                 await db.execute(
                     'UPDATE streamings SET espaco_usado = ? WHERE codigo = ?',
-                    [usedMB, folder.codigo]
+                    [finalUsedMB, folder.codigo]
                 );
                 
-                console.log(`📊 Espaço recalculado para pasta ${folder.identificacao}: ${usedMB}MB`);
+                console.log(`📊 Espaço recalculado para pasta ${folder.identificacao}: ${finalUsedMB}MB (Servidor: ${realServerSizeMB}MB, DB: ${usedMB}MB)`);
             }
             
         } catch (error) {

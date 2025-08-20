@@ -120,6 +120,36 @@ const AdvancedVideoPlayer: React.FC<AdvancedVideoPlayerProps> = ({
   const [viewerCount, setViewerCount] = useState(0);
   const [showStats, setShowStats] = useState(false);
 
+  // Função para construir URL correta baseada no tipo de arquivo
+  const buildVideoUrl = (src: string) => {
+    if (!src) return '';
+
+    // Se já é uma URL completa, usar como está
+    if (src.startsWith('http')) {
+      return src;
+    }
+
+    // Para vídeos SSH, usar a URL diretamente (não adicionar /content)
+    if (src.includes('/api/videos-ssh/')) {
+      return src;
+    }
+
+    // Para URLs do player iframe, usar como está
+    if (src.includes('/api/players/iframe')) {
+      return src;
+    }
+
+    // Para vídeos locais, garantir estrutura correta
+    const cleanPath = src.replace(/^\/+/, ''); // Remove barras iniciais
+    
+    // Verificar se já tem o prefixo 'streaming'
+    if (cleanPath.startsWith('streaming/')) {
+      return `/content/${cleanPath}`;
+    } else {
+      return `/content/streaming/${cleanPath}`;
+    }
+  };
+
   // Configurar fonte de vídeo
   useEffect(() => {
     const video = videoRef.current;

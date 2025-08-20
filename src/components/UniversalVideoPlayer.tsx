@@ -100,6 +100,10 @@ const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
       return src;
     }
 
+    // Para URLs do player iframe, usar como está
+    if (url.includes('/api/players/iframe')) {
+      return url;
+    }
     // Para vídeos locais, garantir estrutura correta
     const cleanPath = src.replace(/^\/+/, ''); // Remove barras iniciais
     

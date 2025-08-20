@@ -119,21 +119,28 @@ const Players: React.FC = () => {
     if (!url) return '';
     
     const userLogin = user?.email?.split('@')[0] || 'usuario';
+    
+    // Se já é uma URL completa, usar como está
+    if (url.startsWith('http')) {
+      return url;
+    }
+    
+    // Para URLs do sistema, construir URL do player iframe
+    const pathParts = url.split('/');
+    if (pathParts.length >= 3) {
+      const userPath = pathParts[0];
+      const folderName = pathParts[1];
+      const fileName = pathParts[2];
+      
+      // Usar player iframe para melhor compatibilidade
+      return `/api/players/iframe?login=${userPath}&vod=${folderName}/${fileName}&aspectratio=16:9&player_type=1&autoplay=false`;
+    }
+    
+    // Fallback para URL direta
     const fileName = url.split('/').pop() || 'video.mp4';
     const folderName = 'default';
     
-    // Verificar se é MP4 ou precisa de conversão
-    const fileExtension = fileName.split('.').pop()?.toLowerCase();
-    const needsConversion = !['mp4'].includes(fileExtension || '');
-    
-    // Nome do arquivo final (MP4)
-    const finalFileName = needsConversion ? 
-      fileName.replace(/\.[^/.]+$/, '.mp4') : fileName;
-    
-    const isProduction = window.location.hostname !== 'localhost';
-    const wowzaHost = isProduction ? 'samhost.wcore.com.br' : '51.222.156.223';
-    
-    return `http://${wowzaHost}:1935/vod/_definst_/mp4:${userLogin}/${folderName}/${finalFileName}/playlist.m3u8`;
+    return `/api/players/iframe?login=${userLogin}&vod=${folderName}/${fileName}&aspectratio=16:9&player_type=1&autoplay=false`;
   };
 
   const playerConfigs: PlayerConfig[] = [

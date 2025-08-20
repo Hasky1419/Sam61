@@ -65,7 +65,7 @@ const Dashboard: React.FC = () => {
           const videoId = video.videos.url.split('/stream/')[1]?.split('?')[0];
           if (videoId) {
             const remotePath = Buffer.from(videoId, 'base64').toString('utf-8');
-            const relativePath = remotePath.replace('/usr/local/WowzaStreamingEngine/content', '');
+            const relativePath = remotePath.replace('/home/streaming/', '');
             externalUrl = `http://${wowzaUser}:${wowzaPassword}@${wowzaHost}:6980/content${relativePath}`;
           } else {
             externalUrl = video.videos.url;
@@ -76,7 +76,16 @@ const Dashboard: React.FC = () => {
       } else if (video.videos.url.startsWith('/content')) {
         externalUrl = `http://${wowzaUser}:${wowzaPassword}@${wowzaHost}:6980${video.videos.url}`;
       } else if (!video.videos.url.startsWith('http')) {
-        externalUrl = `http://${wowzaUser}:${wowzaPassword}@${wowzaHost}:6980/content/${video.videos.url}`;
+        // Usar player iframe para melhor compatibilidade
+        const pathParts = video.videos.url.split('/');
+        if (pathParts.length >= 3) {
+          const userLogin = pathParts[0];
+          const folderName = pathParts[1];
+          const fileName = pathParts[2];
+          externalUrl = `/api/players/iframe?login=${userLogin}&vod=${folderName}/${fileName}&aspectratio=16:9&player_type=1&autoplay=true`;
+        } else {
+          externalUrl = `http://${wowzaUser}:${wowzaPassword}@${wowzaHost}:6980/content/${video.videos.url}`;
+        }
       } else {
         externalUrl = video.videos.url;
       }
